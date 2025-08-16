@@ -1,0 +1,37 @@
+@* Sugestões desabilitadas temporariamente *@
+
+@if (false && suggestions is not null)
+{
+    <div class="page-width suggestions">
+        @foreach (var suggestion in suggestions)
+        {
+            <button class="btn-subtle" @onclick="@(() => AddSuggestionAsync(suggestion))">
+                @suggestion
+            </button>
+        }
+    </div>
+}
+
+@code {
+    private string[]? suggestions;
+    private CancellationTokenSource? cancellation;
+
+    [Parameter]
+    public EventCallback<ChatMessage> OnSelected { get; set; }
+
+    public void Clear()
+    {
+        suggestions = null;
+        cancellation?.Cancel();
+    }
+
+    public void Update(IReadOnlyList<ChatMessage> messages)
+    {
+        // Temporariamente desabilitado - implementar com Semantic Kernel se necessário
+    }
+
+    private async Task AddSuggestionAsync(string text)
+    {
+        await OnSelected.InvokeAsync(new(ChatRole.User, text));
+    }
+}
