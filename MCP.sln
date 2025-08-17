@@ -5,11 +5,11 @@ VisualStudioVersion = 17.14.36301.6
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MCP", "MCP\MCP.csproj", "{04403722-3F94-4024-84CE-4B4281A97B40}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CHAT", "CHAT\CHAT.csproj", "{296CED49-A16E-D2C0-D06B-675E37B852EF}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "API", "API\API.csproj", "{28BD5B64-DAC2-40B0-9D46-BE3B2F4AE77D}"
 EndProject
 Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker-compose.dcproj", "{81DDED9D-158B-E303-5F62-77A2896D2A5A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CHAT", "CHAT\CHAT.csproj", "{296CED49-A16E-D2C0-D06B-675E37B852EF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,10 +21,6 @@ Global
 		{04403722-3F94-4024-84CE-4B4281A97B40}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{04403722-3F94-4024-84CE-4B4281A97B40}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{04403722-3F94-4024-84CE-4B4281A97B40}.Release|Any CPU.Build.0 = Release|Any CPU
-		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Release|Any CPU.Build.0 = Release|Any CPU
 		{28BD5B64-DAC2-40B0-9D46-BE3B2F4AE77D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{28BD5B64-DAC2-40B0-9D46-BE3B2F4AE77D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{28BD5B64-DAC2-40B0-9D46-BE3B2F4AE77D}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -33,6 +29,10 @@ Global
 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{296CED49-A16E-D2C0-D06B-675E37B852EF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

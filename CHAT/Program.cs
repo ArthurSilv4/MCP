@@ -1,79 +1,55 @@
+using Microsoft.Extensions.AI;
 using CHAT.Components;
 using CHAT.Services;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
+using CHAT.Services.Ingestion;
+using OpenAI;
+using System.ClientModel;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
-// MCP Client
-var mcpClient = new McpClient(builder.Configuration);
-await mcpClient.InitializeAsync();
-builder.Services.AddSingleton(mcpClient);
+// You will need to set the endpoint and key to your own values
+// You can do this using Visual Studio's "Manage User Secrets" UI, or on the command line:
+//   cd this-project-directory
+//   dotnet user-secrets set OpenAI:Key YOUR-API-KEY
+var openAIClient = new OpenAIClient(
+    new ApiKeyCredential(builder.Configuration["OpenAI:Key"] ?? throw new InvalidOperationException("Missing configuration: OpenAI:Key. See the README for details.")));
+var chatClient = openAIClient.GetChatClient("gpt-4o-mini").AsIChatClient();
+var embeddingGenerator = openAIClient.GetEmbeddingClient("text-embedding-3-small").AsIEmbeddingGenerator();
 
-// Configurar Semantic Kernel
-var kernelBuilder = Kernel.CreateBuilder();
+var vectorStorePath = Path.Combine(AppContext.BaseDirectory, "vector-store.db");
+var vectorStoreConnectionString = $"Data Source={vectorStorePath}";
+builder.Services.AddSqliteCollection<string, IngestedChunk>("data-chat-chunks", vectorStoreConnectionString);
+builder.Services.AddSqliteCollection<string, IngestedDocument>("data-chat-documents", vectorStoreConnectionString);
 
-// Adicionar OpenAI Chat Completion
-kernelBuilder.AddOpenAIChatCompletion(
-    modelId: "gpt-4o-mini",
-    apiKey: builder.Configuration["OpenAI:Key"]!
-);
-
-// Obter tools do MCP e adicionar como funções no kernel
-var tools = await mcpClient.GetToolsAsync();
-var kernelFunctions = new List<KernelFunction>();
-
-foreach (var tool in tools)
-{
-    var kernelFunction = KernelFunctionFactory.CreateFromMethod(
-        method: async (Dictionary<string, object> parameters) =>
-        {
-            try
-            {
-                var stringArgs = parameters.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? "");
-                var result = await mcpClient.ExecuteToolAsync(tool.Name, stringArgs);
-                return result;
-            }
-            catch (Exception ex)
-            {
-                return $"Erro ao executar ferramenta {tool.Name}: {ex.Message}";
-            }
-        },
-        functionName: tool.Name,
-        description: tool.Description ?? "Ferramenta MCP sem descrição"
-        // Remover InputSchema pois não existe no McpClientTool
-    );
-    
-    kernelFunctions.Add(kernelFunction);
-}
-
-// Adicionar todas as funções MCP como um plugin
-if (kernelFunctions.Any())
-{
-    kernelBuilder.Plugins.AddFromFunctions("McpTools", kernelFunctions);
-}
-
-var kernel = kernelBuilder.Build();
-builder.Services.AddSingleton(kernel);
-
-// Registrar IChatCompletionService
-builder.Services.AddSingleton<IChatCompletionService>(serviceProvider =>
-    serviceProvider.GetRequiredService<Kernel>().GetRequiredService<IChatCompletionService>());
+builder.Services.AddScoped<DataIngestor>();
+builder.Services.AddSingleton<SemanticSearch>();
+builder.Services.AddChatClient(chatClient).UseFunctionInvocation().UseLogging();
+builder.Services.AddEmbeddingGenerator(embeddingGenerator);
 
 var app = builder.Build();
 
+// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
 app.UseAntiforgery();
+
 app.UseStaticFiles();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// By default, we ingest PDF files from the /wwwroot/Data directory. You can ingest from
+// other sources by implementing IIngestionSource.
+// Important: ensure that any content you ingest is trusted, as it may be reflected back
+// to users or could be a source of prompt injection risk.
+await DataIngestor.IngestDataAsync(
+    app.Services,
+    new PDFDirectorySource(Path.Combine(builder.Environment.WebRootPath, "Data")));
 
 app.Run();

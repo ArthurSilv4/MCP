@@ -1,11 +1,8 @@
 ﻿@page "/"
 @using System.ComponentModel
-@using Microsoft.SemanticKernel
-@using Microsoft.SemanticKernel.ChatCompletion
-@using Microsoft.SemanticKernel.Connectors.OpenAI
-@inject Kernel Kernel
-@inject IChatCompletionService ChatService
+@inject IChatClient ChatClient
 @inject NavigationManager Nav
+@inject SemanticSearch Search
 @implements IDisposable
 
 <PageTitle>Chat</PageTitle>
@@ -14,9 +11,9 @@
 
 <ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage">
     <NoMessagesContent>
-        <div>To get started, ask questions that can be answered using the available database tools.</div>
-        <div class="suggestion-item">Try: "Quais tabelas estão disponíveis no banco?"</div>
-        <div class="suggestion-item">Try: "Execute uma consulta na tabela clientes"</div>
+        <div>To get started, try asking about these example documents. You can replace these with your own data and replace this message.</div>
+        <ChatCitation File="Example_Emergency_Survival_Kit.pdf"/>
+        <ChatCitation File="Example_GPS_Watch.pdf"/>
     </NoMessagesContent>
 </ChatMessageList>
 
@@ -28,25 +25,22 @@
 
 @code {
     private const string SystemPrompt = @"
-Você é um assistente especialista em banco de dados que pode usar múltiplas ferramentas para responder perguntas complexas.
+        You are an assistant who answers questions about information you retrieve.
+        Do not answer questions about anything else.
+        Use only simple markdown to format your responses.
 
-COMPORTAMENTO ESPERADO:
-1. Use as ferramentas disponíveis quantas vezes for necessário para responder completamente
-2. Para perguntas complexas, trabalhe em etapas: coleta de informações → análise → consultas específicas
-3. SEMPRE explique o que você está fazendo e por que
-4. Se não souber a estrutura do banco, comece listando as tabelas
-5. Para consultas de dados, primeiro veja a estrutura da tabela relevante
+        Use the search tool to find relevant information. When you do this, end your
+        reply with citations in the special XML format:
 
-FERRAMENTAS DISPONÍVEIS:
-- get_available_tables: Lista todas as tabelas do banco
-- get_table_structure: Mostra estrutura de uma tabela específica  
-- execute_custom_query: Executa consultas SQL SELECT
-- smart_search: Busca inteligente por texto
+        <citation filename='string' page_number='number'>exact quote here</citation>
 
-IMPORTANTE: Você pode e deve usar múltiplas ferramentas em sequência para dar respostas completas.
-";
+        Always include the citation in your response if there are results.
 
-    private readonly ChatHistory chatHistory = new();
+        The quote must be max 5 words, taken word-for-word from the search result, and is the basis for why the citation is relevant.
+        Don't refer to the presence of citations; just emit these tags right at the end, with no surrounding text.
+        ";
+
+    private readonly ChatOptions chatOptions = new();
     private readonly List<ChatMessage> messages = new();
     private CancellationTokenSource? currentResponseCancellation;
     private ChatMessage? currentResponseMessage;
@@ -55,176 +49,44 @@ IMPORTANTE: Você pode e deve usar múltiplas ferramentas em sequência para dar
 
     protected override void OnInitialized()
     {
-        chatHistory.AddSystemMessage(SystemPrompt);
         messages.Add(new(ChatRole.System, SystemPrompt));
+        chatOptions.Tools = [AIFunctionFactory.Create(SearchAsync)];
     }
 
     private async Task AddUserMessageAsync(ChatMessage userMessage)
     {
         CancelAnyCurrentResponse();
 
+        // Add the user message to the conversation
         messages.Add(userMessage);
-        chatHistory.AddUserMessage(userMessage.Text);
         chatSuggestions?.Clear();
         await chatInput!.FocusAsync();
 
+        // Stream and display a new response from the IChatClient
+        var responseText = new TextContent("");
+        currentResponseMessage = new ChatMessage(ChatRole.Assistant, [responseText]);
         currentResponseCancellation = new();
-        var responseText = "";
-        currentResponseMessage = new ChatMessage(ChatRole.Assistant, new Microsoft.SemanticKernel.TextContent(""));
-
-        try
+        await foreach (var update in ChatClient.GetStreamingResponseAsync([.. messages], chatOptions, currentResponseCancellation.Token))
         {
-            // Usar processamento não-streaming para melhor controle das ferramentas
-            await ProcessUserRequestWithReasoningNonStreaming(userMessage.Text);
-        }
-        catch (Exception ex)
-        {
-            var errorMessage = $"Erro: {ex.Message}";
-            currentResponseMessage!.Contents[0] = new Microsoft.SemanticKernel.TextContent(errorMessage);
-            currentResponseMessage.Text = errorMessage;
-            chatHistory.AddAssistantMessage(errorMessage);
-            messages.Add(currentResponseMessage);
-            currentResponseMessage = null;
-        }
-    }
-
-    private async Task ProcessUserRequestWithReasoningNonStreaming(string userRequest)
-    {
-        var maxIterations = 4;
-        var currentIteration = 0;
-        var fullResponse = "";
-
-        Console.WriteLine($"[REASONING] Iniciando processamento da pergunta: '{userRequest}'");
-
-        while (currentIteration < maxIterations)
-        {
-            currentIteration++;
-            Console.WriteLine($"[REASONING] === ITERAÇÃO {currentIteration}/{maxIterations} ===");
-
-            // Configurar as opções de execução
-            var executionSettings = new OpenAIPromptExecutionSettings
-            {
-                ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
-                Temperature = 0.1,
-                MaxTokens = 2000
-            };
-
-            // Fazer uma chamada não-streaming para esta iteração
-            var iterationResult = await ChatService.GetChatMessageContentAsync(
-                chatHistory,
-                executionSettings,
-                Kernel,
-                currentResponseCancellation.Token);
-
-            var iterationResponse = iterationResult.Content ?? "";
-            Console.WriteLine($"[REASONING] Resposta da iteração {currentIteration}: {iterationResponse.Substring(0, Math.Min(200, iterationResponse.Length))}...");
-
-            // Adicionar ao histórico
-            if (!string.IsNullOrEmpty(iterationResponse))
-            {
-                chatHistory.AddAssistantMessage(iterationResponse);
-                fullResponse += iterationResponse + "\n\n";
-
-                // Atualizar UI progressivamente
-                currentResponseMessage.Contents[0] = new Microsoft.SemanticKernel.TextContent(fullResponse);
-                currentResponseMessage.Text = fullResponse;
-                ChatMessageItem.NotifyChanged(currentResponseMessage);
-                StateHasChanged();
-            }
-
-            // Verificar se houve execução de ferramentas nesta iteração
-            var hadToolExecution = iterationResponse.Contains("🚀") || 
-                                  iterationResponse.Contains("Execução #") ||
-                                  iterationResponse.Contains("[Resultado da ferramenta");
-
-            Console.WriteLine($"[REASONING] Ferramenta executada na iteração {currentIteration}: {hadToolExecution}");
-
-            // Verificar se a resposta parece completa
-            var responseSeemComplete = CheckIfResponseIsComplete(iterationResponse, userRequest);
-            Console.WriteLine($"[REASONING] Resposta parece completa: {responseSeemComplete}");
-
-            if (!hadToolExecution && responseSeemComplete)
-            {
-                Console.WriteLine($"[REASONING] Finalizando - Resposta completa sem mais ferramentas necessárias");
-                break;
-            }
-
-            if (hadToolExecution && currentIteration < maxIterations)
-            {
-                // Se houve execução de ferramenta, perguntar se precisa continuar
-                var continuationPrompt = GetContinuationPrompt(userRequest, currentIteration);
-                chatHistory.AddUserMessage(continuationPrompt);
-                
-                // Pequena pausa entre iterações
-                await Task.Delay(800, currentResponseCancellation.Token);
-            }
-            else if (!hadToolExecution)
-            {
-                Console.WriteLine($"[REASONING] Finalizando - Nenhuma ferramenta executada na iteração {currentIteration}");
-                break;
-            }
-        }
-
-        if (currentIteration >= maxIterations)
-        {
-            fullResponse += "\n\n📝 *[Atingido limite máximo de iterações - resposta pode estar incompleta]*";
-            currentResponseMessage.Contents[0] = new Microsoft.SemanticKernel.TextContent(fullResponse);
-            currentResponseMessage.Text = fullResponse;
+            messages.AddMessages(update, filter: c => c is not TextContent);
+            responseText.Text += update.Text;
             ChatMessageItem.NotifyChanged(currentResponseMessage);
         }
 
-        // Finalizar
-        Console.WriteLine($"[REASONING] Processamento finalizado após {currentIteration} iterações");
+        // Store the final response in the conversation, and begin getting suggestions
         messages.Add(currentResponseMessage!);
         currentResponseMessage = null;
         chatSuggestions?.Update(messages);
     }
 
-    private bool CheckIfResponseIsComplete(string response, string originalQuestion)
-    {
-        // Verificar se a resposta tem indicadores de completude
-        var completionIndicators = new []
-        {
-            "total", "resultado", "encontrados", "registros", "concluído",
-            "resposta:", "portanto", "assim", "em resumo", "são", "temos"
-        };
-
-        var incompletionIndicators = new []
-        {
-            "vou", "preciso", "primeiro", "agora", "próximo", "depois",
-            "vamos", "deve", "posso", "seguir"
-        };
-
-        var hasCompletion = completionIndicators.Any(indicator => 
-            response.ToLower().Contains(indicator));
-        
-        var hasIncompletion = incompletionIndicators.Any(indicator => 
-            response.ToLower().Contains(indicator));
-
-        // Se tem indicadores de incompletude, não está completo
-        if (hasIncompletion) return false;
-
-        // Se tem indicadores de completude e não tem de incompletude, provavelmente está completo
-        return hasCompletion;
-    }
-
-    private string GetContinuationPrompt(string originalQuestion, int iteration)
-    {
-        return iteration switch
-        {
-            1 => $"Com base nos dados coletados, continue analisando para responder completamente: '{originalQuestion}'",
-            2 => $"Você tem mais informações agora. Use-as para dar uma resposta específica para: '{originalQuestion}'",
-            3 => $"Finalize sua análise e forneça a resposta definitiva para: '{originalQuestion}'",
-            _ => $"Conclua sua resposta para: '{originalQuestion}'"
-        };
-    }
-
     private void CancelAnyCurrentResponse()
     {
+        // If a response was cancelled while streaming, include it in the conversation so it's not lost
         if (currentResponseMessage is not null)
         {
             messages.Add(currentResponseMessage);
         }
+
         currentResponseCancellation?.Cancel();
         currentResponseMessage = null;
     }
@@ -232,12 +94,21 @@ IMPORTANTE: Você pode e deve usar múltiplas ferramentas em sequência para dar
     private async Task ResetConversationAsync()
     {
         CancelAnyCurrentResponse();
-        chatHistory.Clear();
-        chatHistory.AddSystemMessage(SystemPrompt);
         messages.Clear();
         messages.Add(new(ChatRole.System, SystemPrompt));
         chatSuggestions?.Clear();
         await chatInput!.FocusAsync();
+    }
+
+    [Description("Searches for information using a phrase or keyword")]
+    private async Task<IEnumerable<string>> SearchAsync(
+        [Description("The phrase to search for.")] string searchPhrase,
+        [Description("If possible, specify the filename to search that file only. If not provided or empty, the search includes all files.")] string? filenameFilter = null)
+    {
+        await InvokeAsync(StateHasChanged);
+        var results = await Search.SearchAsync(searchPhrase, filenameFilter, maxResults: 5);
+        return results.Select(result =>
+            $"<result filename=\"{result.DocumentId}\" page_number=\"{result.PageNumber}\">{result.Text}</result>");
     }
 
     public void Dispose()
