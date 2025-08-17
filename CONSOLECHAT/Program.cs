@@ -1,5 +1,5 @@
 ﻿
-using CHAT.Helpers;
+using CONSOLECHAT.Helpers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;

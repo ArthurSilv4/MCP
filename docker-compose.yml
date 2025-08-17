@@ -10,6 +10,19 @@ services:
     networks:
       - app-network
   
+  consolechat:
+    container_name: consolechat
+    image: ${DOCKER_REGISTRY-}consolechat
+    build:
+      context: .
+      dockerfile: CONSOLECHAT/Dockerfile
+    depends_on:
+      - mcp
+    networks:
+      - app-network
+    stdin_open: true 
+    tty: true         
+
   mcp:
     container_name: mcp
     image: ${DOCKER_REGISTRY-}mcp
