@@ -1,6 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace API.Requests
+﻿namespace API.Requests
 {
     public record UserRequest(
         string Name,

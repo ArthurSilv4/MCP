@@ -5,11 +5,19 @@ services:
     build:
       context: .
       dockerfile: API/Dockerfile
-    ports:
-      - "8000:8080"
-      - "8001:8081"
     depends_on:
       - db
+    networks:
+      - app-network
+  
+  mcp:
+    container_name: mcp
+    image: ${DOCKER_REGISTRY-}mcp
+    build:
+      context: .
+      dockerfile: MCP/Dockerfile
+    depends_on:
+      - api
     networks:
       - app-network
 
